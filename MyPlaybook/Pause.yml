@@ -1,0 +1,10 @@
+---
+# Start all VMs on a vCenter
+- hosts: all
+  #Variables for vCenter and VMs
+  vars:
+    min: ""
+    
+  tasks:
+    - pause:
+        minutes: "{{ min }}"

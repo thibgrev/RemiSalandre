@@ -1,0 +1,27 @@
+---
+# Shutdown all VMs on a vCenter (only for demo)
+- hosts: all
+  #Variables for vCenter and VMs
+  vars:
+    vcenter_ip: ""
+    vcenter_username: ""
+    vcenter_password: ""
+    vm_name: ""
+    folder: ""
+    dc: ""
+    snapshot_name: ""
+    
+  tasks:
+    - name: Revert to a snapshot
+      vmware_guest_snapshot:
+        hostname: "{{ vcenter_ip }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: False
+        datacenter: "{{ dc }}"
+        folder: "{{ folder }}"
+        name: "{{ item }}"
+        state: revert
+        snapshot_name: "{{ snapshot_name }}"
+      with_items: "{{ vm_name }}"
+      delegate_to: localhost

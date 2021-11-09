@@ -1,0 +1,6 @@
+---
+- hosts: all
+# Update RHEL
+  tasks:  
+    - name: update all packages
+      command: yum -y update

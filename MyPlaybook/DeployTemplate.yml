@@ -1,0 +1,47 @@
+---
+# Deploy a VM from Template
+- hosts: all
+  #Variables for vCenter and VMs
+  vars:
+    vcenter_ip: ""
+    vcenter_username: ""
+    vcenter_password: ""
+    vm_name: ""
+    dc: ""
+    folder: ""
+    template: ""
+    vm_ram: ""
+    vm_cpus: ""
+    vm_cpu_cores_per_socket: ""
+    vm_disk_gb: ""
+    vm_hostname: ""
+    
+  tasks:
+    - name: Create a virtual machine from a template
+      vmware_guest:
+        hostname: "{{ vcenter_ip }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: no
+        datacenter: "{{ dc }}"
+        folder: "{{ folder }}" 
+        name: "{{ vm_name }}"
+        state: poweredon
+        template: "{{ template }}"
+        disk:
+        - size_gb: "{{ vm_disk_gb }}"
+          type: thin
+          datastore: vsanDatastore
+        hardware:
+          memory_mb: "{{ vm_ram }}"
+          num_cpus: "{{ vm_cpus }}" #For example to create a VM with 2 sockets of 4 cores, specify num_cpus: 8 and num_cpu_cores_per_socket: 4
+          num_cpu_cores_per_socket: "{{ vm_cpu_cores_per_socket }}"
+          scsi: paravirtual
+          boot_firmware: "efi"
+        networks:
+        - name: VM Network
+          type: dhcp
+        customization:
+          hostname: "{{ vm_hostname }}"
+        wait_for_ip_address: yes
+      delegate_to: localhost

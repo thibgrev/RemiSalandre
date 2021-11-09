@@ -1,0 +1,27 @@
+---
+# Install RHEL 7
+- hosts: all
+  vars:
+    user: ""
+    passwd: ""
+    repo: ""
+
+# Register to Subscription Manager 
+  tasks:
+    - name: Register an user and auto-subscribe to available content.
+      redhat_subscription:
+        state: present
+        username: "{{ user }}"
+        password: "{{ passwd }}"
+        autosubscribe: true
+# Disable all repositories        
+    - name: Disable all RHSM repositories
+      rhsm_repository:
+        name: '*'
+        state: disabled
+# Enable Repositoies needed    
+    - name: enable the needed rhel repositories
+      command: subscription-manager repos --enable={{ item }}
+      with_items: "{{ repo }}"
+        #- rhel-7-server-rpms # For manual repo list
+        #- rhel-7-server-extras-rpms

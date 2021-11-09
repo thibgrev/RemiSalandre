@@ -1,0 +1,14 @@
+---
+# Déployer des app sur windows
+- hosts: all
+  vars:
+    apps_state: ""
+    msi: ""
+
+#Installe/desinstalle plusieurs applications MSI
+  tasks:
+    - name: Deploy applications on "{{ ansible_hostname }}"
+      win_msi:
+        path: "{{ item }}"
+        state: "{{ msi_state }}"
+      with_items: "{{ msi }}"

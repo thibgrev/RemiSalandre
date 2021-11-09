@@ -1,0 +1,84 @@
+---
+# Deploy a VM from Template
+- hosts: all
+  #Variables for vCenter and VMs
+  vars:
+    vcenter_ip: ""
+    vcenter_username: ""
+    vcenter_password: ""
+    vm_name: ""
+    dc: ""
+    folder: ""
+    template: ""
+    datastore: ""
+    vm_ram: ""
+    vm_cpus: ""
+    vm_cpu_cores_per_socket: ""
+    vm_disk_gb: ""
+    vm_hostname: ""
+    vm_mac: ""
+    ignition_file: ""
+    
+  tasks:
+    - name: Create a virtual machine from a template
+      vmware_guest:
+        hostname: "{{ vcenter_ip }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: no
+        datacenter: "{{ dc }}"
+        folder: "{{ folder }}" 
+        name: "{{ vm_name }}"
+        state: present
+        template: "{{ template }}"
+        disk:
+        - size_gb: "{{ vm_disk_gb }}"
+          type: thin
+          datastore: "{{ datastore }}"
+        hardware:
+          memory_mb: "{{ vm_ram }}"
+          mem_reservation: "{{ vm_ram }}"
+          num_cpus: "{{ vm_cpus }}" #For example to create a VM with 2 sockets of 4 cores, specify num_cpus: 8 and num_cpu_cores_per_socket: 4
+          num_cpu_cores_per_socket: "{{ vm_cpu_cores_per_socket }}"
+          scsi: paravirtual
+          boot_firmware: "efi"
+        networks:
+        - name: "VM Network"
+          mac: "{{ vm_mac }}"
+          type: dhcp
+      delegate_to: localhost
+      
+    - name: change configuration parameter
+      vmware_guest_custom_attributes:
+        hostname: "{{ vcenter_ip }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: no
+        datacenter: "{{ dc }}"
+        folder: "{{ folder }}" 
+        name: "{{ vm_name }}"
+        state: present
+        attributes:
+          - name: guestinfo.ignition.config.data.encoding
+            value: "base64"
+          - name: disk.EnableUUID
+            value: "TRUE"
+          - name: guestinfo.ignition.config.data
+            value: "{{ ignition_file }}"
+      delegate_to: localhost
+      
+    - name: change mac address
+      vmware_guest_network:
+        hostname: "{{ vcenter_ip }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: no
+        datacenter: "{{ dc }}"
+        folder: "{{ folder }}" 
+        name: "{{ vm_name }}"
+        gather_network_info: false
+        networks:
+          - label: "Network adapter 1"
+            state: present
+            manual_mac: "{{ vm_mac }}"
+      delegate_to: localhost

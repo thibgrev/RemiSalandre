@@ -1,0 +1,314 @@
+---
+- hosts: all
+  vars:
+    baseDomain: ""
+    clusterName: ""
+    vcenter:
+      ip: ""
+      datastore: ""
+      username: ""
+      password: ""
+      datacenter: ""
+      folder: ""
+      template: ""
+    vm:
+      worker_ram: ""
+      worker_cpus: ""
+      master_ram: ""
+      master_cpus: ""
+      bootstrap_ram: ""
+      bootstrap_cpus: ""
+      disk_gb: ""
+    pullSecret: ""
+    sshKey: ""
+    download:
+      ocpClient: "http://mirror.openshift.com/pub/openshift-v4/clients/ocp/4.4.11/openshift-client-linux-4.4.11.tar.gz"
+      ocpInstall: "http://mirror.openshift.com/pub/openshift-v4/clients/ocp/4.4.11/openshift-install-linux-4.4.11.tar.gz"
+    table_item_worker1: { vm_name: "testworker1", vm_ram: "{{ vm.worker_ram }}", vm_cpus: "{{ vm.worker_cpus }}", ignition_file: "{{ b64worker['content'] }}", vm_mac: "" }
+    table_item_worker2: { vm_name: "testworker2", vm_ram: "{{ vm.worker_ram }}", vm_cpus: "{{ vm.worker_cpus }}", ignition_file: "{{ b64worker['content'] }}", vm_mac: "" }
+    table_item_worker3: { vm_name: "testworker1", vm_ram: "{{ vm.worker_ram }}", vm_cpus: "{{ vm.worker_cpus }}", ignition_file: "{{ b64worker['content'] }}", vm_mac: "" }
+    table_item_worker4: { vm_name: "testworker2", vm_ram: "{{ vm.worker_ram }}", vm_cpus: "{{ vm.worker_cpus }}", ignition_file: "{{ b64worker['content'] }}", vm_mac: "" }
+    table_item_master1: { vm_name: "testmaster1", vm_ram: "{{ vm.master_ram }}", vm_cpus: "{{ vm.master_cpus }}", ignition_file: "{{ b64master['content'] }}", vm_mac: "" }
+    table_item_master2: { vm_name: "testmaster2", vm_ram: "{{ vm.master_ram }}", vm_cpus: "{{ vm.master_cpus }}", ignition_file: "{{ b64master['content'] }}", vm_mac: "" }
+    table_item_master3: { vm_name: "testmaster3", vm_ram: "{{ vm.master_ram }}", vm_cpus: "{{ vm.master_cpus }}", ignition_file: "{{ b64master['content'] }}", vm_mac: "" }
+    table_item_bootstrap: { vm_name: "testbootstrap", vm_ram: "{{ vm.bootstrap_ram }}", vm_cpus: "{{ vm.bootstrap_cpus }}", ignition_file: "{{ b64appendbootstrap['content'] }}", vm_mac: "" }
+
+# Install  
+  tasks:
+    - name: Create .openshift directory if it does not exist
+      file:
+        path: ~/.openshift
+        state: directory
+        mode: '0755'
+    - name: Create /tmp/ocp4 directory if it does not exist
+      file:
+        path: /tmp/ocp4
+        state: directory
+        mode: '0755'
+
+    - name: Donwload file for ocp4
+      unarchive:
+        src: "{{ download.ocpClient }}"
+        dest: /tmp/ocp4
+        remote_src: yes
+
+    - name: Donwload file for ocp4
+      unarchive:
+        src: "{{ download.ocpInstall }}"
+        dest: /tmp/ocp4
+        remote_src: yes
+
+    - name: Move files to /usr/local/bin
+      copy:
+        src: /tmp/ocp4/{{ item }}
+        dest: /usr/local/bin
+        mode: '0755'
+        remote_src: yes
+      with_items:
+        - oc
+        - kubectl
+        - openshift-install
+        
+    - name: Create .ssh directory if it does not exist
+      file:
+        path: ~/.ssh
+        state: directory
+        mode: '0755'
+        
+    - name: Create SSH Key
+      openssh_keypair:
+        path: ~/.ssh/id_rsa
+      register: sshKey
+
+    - name: Create .openshift directory if it does not exist
+      file:
+        path: ~/openshift4
+        state: directory
+        mode: '0755'
+
+#Utiliser Template pour faire le fichier install-config.yaml
+    - name: Copy install-config to local file
+      local_action: get_url url="http://webocp4.fuji.bsctdas.local/ocp4file/install-config.yaml.j2" dest="./install-config.yaml.j2"
+          
+    - name: Get install-config.yaml
+      template:
+        src: "install-config.yaml.j2"
+        dest: ~/openshift4/install-config.yaml
+    
+    - name: Backup the install-config.yaml file 
+      copy:
+        src: ~/openshift4/install-config.yaml
+        dest: ~/openshift4/install-config.yaml.orig
+        remote_src: yes
+
+    - name: Create manifests for OpenShift
+      command: openshift-install create manifests --dir ~/openshift4
+
+    - name: Change mastersSchedulable to false
+      lineinfile:
+        path: ~/openshift4/manifests/cluster-scheduler-02-config.yml
+        regexp: 'mastersSchedulable: true'
+        line: "  mastersSchedulable: false"
+
+    - name: Create ignition for OpenShift
+      command: openshift-install create ignition-configs --dir ~/openshift4
+    
+# Trouver pour créer append-bootstrap.ign
+    - name: Copy install-config to local file
+      local_action: get_url url="http://webocp4.fuji.bsctdas.local/ocp4file/append-bootstrap.ign.j2" dest="./append-bootstrap.ign.j2"
+    
+    - name: Get append-bootstrap.ign
+      template:
+        src: "append-bootstrap.ign.j2"
+        dest: ~/openshift4/append-bootstrap.ign
+        
+    - name: get b64 to var
+      slurp:
+        src: ~/openshift4/append-bootstrap.ign
+      register: b64appendbootstrap
+      
+    - name: get b64 to var
+      slurp:
+        src: ~/openshift4/worker.ign
+      register: b64worker
+      
+    - name: get b64 to var
+      slurp:
+        src: ~/openshift4/master.ign
+      register: b64master
+    
+    - name: Install packages for httpd
+      yum:
+        name: httpd
+        state: present
+
+    - name: Open port for Webserver
+      command: firewall-cmd --add-port="{{ item }}" --permanent
+      with_items:
+        - 80/tcp
+
+    - name: Restart Firewalld and httpd
+      systemd:
+        state: restarted
+        daemon_reload: yes
+        name: "{{ item }}"
+      with_items:
+        - firewalld
+        - httpd
+
+    - name: Create .ssh directory if it does not exist
+      file:
+        path: /var/www/html/ignition
+        state: directory
+        mode: '0755'
+
+    - name: Copy bootstrap ignition file to web server
+      copy:
+        src: ~/openshift4/bootstrap.ign
+        dest: /var/www/html/ignition
+        remote_src: yes
+        
+    - name: Put SELinux in permissive mode, logging actions that would be blocked.
+      selinux:
+        policy: targeted
+        state: permissive
+
+    - name: Create a virtual machine from a vcenter.template
+      vmware_guest:
+        hostname: "{{ vcenter.ip }}"
+        username: "{{ vcenter.username }}"
+        password: "{{ vcenter.password }}"
+        validate_certs: no
+        datacenter: "{{ vcenter.datacenter }}"
+        folder: "{{ vcenter.folder }}" 
+        name: "{{ item.vm_name }}"
+        state: present
+        template: "{{ vcenter.template }}"
+        disk:
+        - size_gb: "{{ vm.disk_gb }}"
+          type: thin
+          datastore: "{{ vcenter.datastore }}"
+        hardware:
+          memory_mb: "{{ item.vm_ram }}"
+          #mem_reservation: "{{ item.vm_ram }}"
+          num_cpus: "{{ item.vm_cpus }}" #For example to create a VM with 2 sockets of 4 cores, specify num_cpus: 8 and num_cpu_cores_per_socket: 4
+          #num_cpu_cores_per_socket: "{{ vm_cpu_cores_per_socket }}"
+          scsi: paravirtual
+          boot_firmware: "efi"
+        networks:
+        - name: "VM Network"
+          type: dhcp
+        vapp_properties:
+          - id: guestinfo.ignition.config.data
+            value: "{{ item.ignition_file }}"
+            #value: "changeme"
+          - id: guestinfo.ignition.config.data.encoding
+            value: "base64"
+          #- key: disk.EnableUUID
+          #  value: "TRUE"
+        customvalues:
+        #- key: guestinfo.ignition.config.data
+          #value: "{{ item.ignition_file }}"
+          #value: "changeme"
+        #- key: guestinfo.ignition.config.data.encoding
+          #value: "base64"
+        - key: disk.EnableUUID
+          value: "TRUE"
+      with_items:
+          - "{{ table_item_worker1 }}"
+          - "{{ table_item_worker2 }}"
+          - "{{ table_item_worker3 }}"
+          - "{{ table_item_worker4 }}"
+          - "{{ table_item_master1 }}"
+          - "{{ table_item_master2 }}"
+          - "{{ table_item_master3 }}"
+          - "{{ table_item_bootstrap }}"
+      delegate_to: localhost
+      
+    - name: change mac address
+      vmware_guest_network:
+        hostname: "{{ vcenter.ip }}"
+        username: "{{ vcenter.username }}"
+        password: "{{ vcenter.password }}"
+        validate_certs: no
+        datacenter: "{{ vcenter.datacenter }}"
+        folder: "{{ vcenter.folder }}" 
+        name: "{{ item.vm_name }}"
+        gather_network_info: false
+        networks:
+          - label: "Network adapter 1"
+            state: present
+            manual_mac: "{{ item.vm_mac }}"
+      with_items:
+          - "{{ table_item_worker1 }}"
+          - "{{ table_item_worker2 }}"
+          - "{{ table_item_worker3 }}"
+          - "{{ table_item_worker4 }}"
+          - "{{ table_item_master1 }}"
+          - "{{ table_item_master2 }}"
+          - "{{ table_item_master3 }}"
+          - "{{ table_item_bootstrap }}"
+      delegate_to: localhost
+    
+    - name: Start VMs
+      vmware_guest:
+        hostname: "{{ vcenter.ip }}"
+        username: "{{ vcenter.username }}"
+        password: "{{ vcenter.password }}"
+        validate_certs: no
+        name: "{{ item.vm_name }}"
+        state: poweredon
+        #wait_for_ip_address: yes
+      with_items:
+          - "{{ table_item_bootstrap }}"
+          - "{{ table_item_worker1 }}"
+          - "{{ table_item_worker2 }}"
+          - "{{ table_item_worker3 }}"
+          - "{{ table_item_worker4 }}"
+          - "{{ table_item_master1 }}"
+          - "{{ table_item_master2 }}"
+          - "{{ table_item_master3 }}"
+      delegate_to: localhost
+
+    - name: Wait for bootstrap is complete
+      command: openshift-install wait-for bootstrap-complete --dir ~/openshift4/
+      register: result
+      until: result.rc == 0
+      retries: 2
+      delay: 10
+    
+    - name: Create .kube directory if it does not exist
+      file:
+        path: ~/.kube
+        state: directory
+        mode: '0755'
+    
+    - name: Move kubeconfig file to ~/.kube/config
+      copy:
+        src: ~/openshift4/auth/kubeconfig
+        dest: ~/.kube/config
+        mode: '0755'
+        remote_src: yes
+    
+#    - name: Add Storage to image registry
+#      command: oc patch configs.imageregistry.operator.openshift.io cluster --type merge --patch '{"spec":{"storage":{"emptyDir":{}}}}'
+#      register: result
+#      until: result.rc == 0
+#      retries: 10
+#      delay: 20
+    
+#    - name: Wait for installation is complete
+#      command: openshift-install wait-for install-complete --dir ~/openshift4/
+#      register: installationOpenshift
+    
+#    - name: Sending an e-mail with OpenShift credentials
+#      mail:
+#        host: smtp.gmail.com
+#        port: 465
+#        from: "{{ from }}"
+#        username: "{{ username }}"
+#        password: "{{ password }}"
+#        to: "{{ to }}" 
+#        subject: OpenShift Installation
+#        body: "{{ installationOpenshift.stderr }}"
+#        secure: always

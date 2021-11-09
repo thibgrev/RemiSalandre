@@ -1,0 +1,14 @@
+---
+# Déployer des app sur windows
+- hosts: all
+  vars:
+    apps_state: ""
+    apps: ""
+
+#Installe/desinstalle plusieurs applications  
+  tasks:
+    - name: Deploy applications on "{{ ansible_hostname }}"
+      win_chocolatey:
+        name: "{{ item }}"
+        state: "{{ apps_state }}"
+      with_items: "{{ apps }}"

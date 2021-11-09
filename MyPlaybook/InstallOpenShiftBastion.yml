@@ -1,0 +1,97 @@
+---
+- hosts: all
+  vars:
+  
+# Install  
+  tasks:
+    - name: Create .openshift directory if it does not exist
+      file:
+        path: ~/.openshift
+        state: directory
+        mode: '0755'
+    - name: Create /tmp/ocp4 directory if it does not exist
+      file:
+        path: /tmp/ocp4
+        state: directory
+        mode: '0755'
+
+#Trouver comment mettre le fichier pull-secret
+
+    - name: Donwload file for ocp4
+      unarchive:
+        src: http://mirror.openshift.com/pub/openshift-v4/clients/ocp/4.2.14/openshift-client-linux-4.2.14.tar.gz
+        dest: /tmp/ocp4
+        remote_src: yes
+
+    - name: Donwload file for ocp4
+      unarchive:
+        src: http://mirror.openshift.com/pub/openshift-v4/clients/ocp/4.2.14/openshift-install-linux-4.2.14.tar.gz
+        dest: /tmp/ocp4
+        remote_src: yes
+
+    - name: Move files to /usr/local/bin
+      copy:
+        src: /tmp/ocp4/{{ item }}
+        dest: /usr/local/bin
+        mode: '0755'
+        remote_src: yes
+      with_items:
+        - oc
+        - kubectl
+        - openshift-install
+        
+    - name: Create .ssh directory if it does not exist
+      file:
+        path: ~/.ssh
+        state: directory
+        mode: '0755'
+        
+    - name: Create SSH Key
+      openssh_keypair:
+        path: ~/.ssh/id_rsa
+
+    - name: Create .openshift directory if it does not exist
+      file:
+        path: ~/openshift4
+        state: directory
+        mode: '0755'
+
+#Utiliser Template pour faire le fichier install-config.yaml
+    - name: Download append-bootstrap.ign
+      get_url:
+        url: http://webocp4.fuji.bsctdas.local/ocp4file/install-config.yaml
+        dest: ~/openshift4/install-config.yaml
+
+    - name: Create manifests for OpenShift
+      command: openshift-install create manifests --dir ~/openshift4
+
+    #- name: Change masterSchedulable true to false
+    #  command: "sed -i 's/mastersSchedulable: true/mastersSchedulable: false/g' manifests/cluster-scheduler-02-config.yml"
+#    - name: Ensure SELinux is set to enforcing mode
+#      lineinfile:
+#        path: ~/openshift4/manifests/cluster-scheduler-02-config.yml
+#        regexp: 'mastersSchedulable: true'
+#        line: "mastersSchedulable: false"
+
+#    - name: Create ignition for OpenShift
+#      command: openshift-install create ignition-configs --dir ~/openshift4
+    
+# Trouver pour créer append-bootstrap.ign
+    - name: Download append-bootstrap.ign
+      get_url:
+        url: http://webocp4.fuji.bsctdas.local/ocp4file/append-bootstrap.ign
+        dest: ~/openshift4/append-bootstrap.ign
+
+#    - name: Transfer bootstrap ignifition file from Bastion to Webserver
+#      synchronize:
+#        src: ~/openshift4/bootstrap.ign
+#        dest: rsync://{{ webserver }}/var/www/html/ignition/test/bootstrap.ign
+      #  mode: pull
+#      delegate_to: "10.50.51.107"
+    
+    - name: Convert ignition files to base64
+      command: "base64 -w0 {{item }}.ign > {{ item }}.64"
+      with_items:
+        - append-bootstrap
+#        - master
+#        - worker

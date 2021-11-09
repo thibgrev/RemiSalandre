@@ -1,0 +1,23 @@
+---
+# Commande PowerShell
+- hosts: all
+  #Variables pour DL les fichiers
+  vars: 
+    url: ""
+    file_name: ""
+    
+  tasks:
+    #Créer un répertoire Temp pour y poser les fichier à télécharger
+    - name: Créer le dossier temp
+      win_file:
+        path: C:\temp
+        state: directory
+    
+    - name: Télécharge les fichiers renseignés sur "{{ ansible_hostname }}"
+      win_get_url: 
+        url: "{{ item }}"
+        dest: C:\temp\ 
+       #"{{ file_name }}"
+      #DL plusieurs fichiers depuis les url spécifié
+      with_items: "{{ url }}"
+      

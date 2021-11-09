@@ -1,0 +1,152 @@
+---
+- hosts: all
+  vars:
+    baseDomain: ""
+    clusterName: ""
+    vcenter:
+      ip: ""
+      datastore: ""
+      username: ""
+      password: ""
+      datacenter: ""
+    pullSecret: ""
+    sshKey: ""
+    download:
+      ocpClient: "http://mirror.openshift.com/pub/openshift-v4/clients/ocp/4.3.0/openshift-client-linux-4.3.0.tar.gz"
+      ocpInstall: "http://mirror.openshift.com/pub/openshift-v4/clients/ocp/4.3.0/openshift-install-linux-4.3.0.tar.gz"
+    b64:
+      append-bootstrap: ""
+      worker: ""
+      master: ""
+  
+# Install  
+  tasks:
+    - name: Create .openshift directory if it does not exist
+      file:
+        path: ~/.openshift
+        state: directory
+        mode: '0755'
+    - name: Create /tmp/ocp4 directory if it does not exist
+      file:
+        path: /tmp/ocp4
+        state: directory
+        mode: '0755'
+
+#Trouver comment mettre le fichier pull-secret
+
+    - name: Donwload file for ocp4
+      unarchive:
+        src: "{{ download.ocpClient }}"
+        dest: /tmp/ocp4
+        remote_src: yes
+
+    - name: Donwload file for ocp4
+      unarchive:
+        src: "{{ download.ocpInstall }}"
+        dest: /tmp/ocp4
+        remote_src: yes
+
+    - name: Move files to /usr/local/bin
+      copy:
+        src: /tmp/ocp4/{{ item }}
+        dest: /usr/local/bin
+        mode: '0755'
+        remote_src: yes
+      with_items:
+        - oc
+        - kubectl
+        - openshift-install
+        
+    - name: Create .ssh directory if it does not exist
+      file:
+        path: ~/.ssh
+        state: directory
+        mode: '0755'
+        
+    - name: Create SSH Key
+      openssh_keypair:
+        path: ~/.ssh/id_rsa
+      register: sshKey
+
+    - name: Create .openshift directory if it does not exist
+      file:
+        path: ~/openshift4
+        state: directory
+        mode: '0755'
+
+#Utiliser Template pour faire le fichier install-config.yaml
+    - name: Copy install-config to local file
+      local_action: get_url url="http://webocp4.fuji.bsctdas.local/ocp4file/install-config.yaml.j2" dest="./install-config.yaml.j2"
+          
+    - name: Get install-config.yaml
+      template:
+        src: "install-config.yaml.j2"
+        dest: ~/openshift4/install-config.yaml
+    
+    - name: Backup the install-config.yaml file 
+      copy:
+        src: ~/openshift4/install-config.yaml
+        dest: ~/openshift4/install-config.yaml.orig"
+        remote_src: yes
+
+    - name: Create manifests for OpenShift
+      command: openshift-install create manifests --dir ~/openshift4
+
+    - name: Change mastersSchedulable to false
+      lineinfile:
+        path: ~/openshift4/manifests/cluster-scheduler-02-config.yml
+        regexp: 'mastersSchedulable: true'
+        line: "  mastersSchedulable: false"
+
+    - name: Create ignition for OpenShift
+      command: openshift-install create ignition-configs --dir ~/openshift4
+    
+# Trouver pour créer append-bootstrap.ign
+    - name: Copy install-config to local file
+      local_action: get_url url="http://webocp4.fuji.bsctdas.local/ocp4file/append-bootstrap.ign.j2" dest="./append-bootstrap.ign.j2"
+    
+    - name: Get append-bootstrap.ign
+      template:
+        src: "append-bootstrap.ign.j2"
+        dest: ~/openshift4/append-bootstrap.ign
+
+#    - name: Transfer bootstrap ignifition file from Bastion to Webserver
+#      synchronize:
+#        use_ssh_args: yes
+#        src: ~/openshift4/bootstrap.ign
+#        dest: /var/www/html/ignition/test/bootstrap.ign
+#        mode: pull
+#      delegate_to: "{{ webserver }}"
+#      remote_user: root
+      
+    
+    - name: Convert ignition files to base64
+      shell: "base64 -w0 ~/openshift4/{{ item }}.ign > ~/openshift4/{{ item }}.64"
+      loop:
+        - append-bootstrap
+        - master
+        - worker
+        
+    - name: get b64 to var
+      slurp:
+        src: ~/openshift4/append-bootstrap.ign
+      register: b64.append-bootstrap
+      
+    - name: get b64 to var
+      slurp:
+        src: ~/openshift4/worker.ign
+      register: b64.worker
+      
+    - name: get b64 to var
+      slurp:
+        src: ~/openshift4/master.ign
+      register: b64.master
+      
+    - name: Copy b64 var to local file
+      local_action: copy content="{{ b64.append-bootstrap }}" dest="./append-bootstrap.b64"
+    
+    - name: Copy b64 var to local file
+      local_action: copy content="{{ b64.master }}" dest="./master.b64"
+      
+    - name: Copy b64 var to local file
+      local_action: copy content="{{ b64.worker }}" dest="./worker.b64"

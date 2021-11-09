@@ -1,0 +1,92 @@
+---
+# Deploy a VM from Template
+- hosts: all
+  #Variables for vCenter and VMs
+  vars:
+    vcenter:
+      ip: ""
+      datastore: ""
+      username: ""
+      password: ""
+      datacenter: ""
+      folder: ""
+      template: ""
+    vm:
+      name: ""
+      ram: ""
+      cpus: ""
+      disk_gb: ""
+      hostname: ""
+    
+  tasks:
+    - name: Create a virtual machine from a vcenter.template
+      vmware_guest:
+        hostname: "{{ vcenter.ip }}"
+        username: "{{ vcenter.username }}"
+        password: "{{ vcenter.password }}"
+        validate_certs: no
+        datacenter: "{{ vcenter.datacenter }}"
+        folder: "{{ vcenter.folder }}" 
+        name: "{{ vm.name }}"
+        state: present
+        template: "{{ vcenter.template }}"
+        disk:
+        - size_gb: "{{ vm.disk_gb }}"
+          type: thin
+          datastore: "{{ vcenter.datastore }}"
+        hardware:
+          memory_mb: "{{ vm.ram }}"
+          num_cpus: "{{ vm.cpus }}" 
+          scsi: paravirtual
+          boot_firmware: "efi"
+        networks:
+        - name: VM Network
+          start_connected: yes
+          type: dhcp
+      delegate_to: localhost
+      
+    - name: change mac address
+      vmware_guest_network:
+        hostname: "{{ vcenter.ip }}"
+        username: "{{ vcenter.username }}"
+        password: "{{ vcenter.password }}"
+        validate_certs: no
+        datacenter: "{{ vcenter.datacenter }}"
+        folder: "{{ vcenter.folder }}" 
+        name: "{{ vm_name }}"
+        gather_network_info: false
+        networks:
+          - label: "Network adapter 1"
+            state: present
+            manual_mac: "{{ vm.mac }}"
+            connected: yes
+            start_connected: yes
+      delegate_to: localhost
+      
+    - name: Start a virtual machine from a vcenter.template
+      vmware_guest:
+        hostname: "{{ vcenter.ip }}"
+        username: "{{ vcenter.username }}"
+        password: "{{ vcenter.password }}"
+        validate_certs: no
+        datacenter: "{{ vcenter.datacenter }}"
+        folder: "{{ vcenter.folder }}" 
+        name: "{{ vm.name }}"
+        state: poweredon
+        wait_for_ip_address: yes
+      delegate_to: localhost
+      
+    - name: Change hostname of guest machine
+      vmware_vm_shell:
+        hostname: "{{ vcenter.ip }}"
+        username: "{{ vcenter.username }}"
+        password: "{{ vcenter.password }}"
+        validate_certs: no
+        datacenter: "{{ vcenter.datacenter }}"
+        folder: "/{{ vcenter.datacenter }}/vm"
+        vm_id: "{{ vm.name }}"
+        vm_username: "{{ vm_username }}"
+        vm_password: "{{ vm_password }}"
+        vm_shell: "/usr/bin/hostnamectl"
+        vm_shell_args: "set-hostname {{ vm.hostname }}"
+      delegate_to: localhost

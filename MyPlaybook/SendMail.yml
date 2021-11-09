@@ -1,0 +1,21 @@
+---
+- hosts: all
+  vars:
+    username: ""
+    password: ""
+    to: ""
+    body: ""
+    subject: ""
+  
+  tasks:
+    - name: Sending an e-mail
+      mail:
+        host: smtp.gmail.com #You need to accept third party connection on google
+        port: 465
+        from: "{{ from }}"
+        username: "{{ username }}"
+        password: "{{ password }}"
+        to: "{{ to }}"
+        subject: "{{ subject }}"
+        body: "{{ body }}"
+        secure: always

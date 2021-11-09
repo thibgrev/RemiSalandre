@@ -1,0 +1,161 @@
+---
+# Install K8s
+- hosts: all
+  vars:
+    host_addr: ""
+    join_command: ""
+
+  tasks:  
+#    - name: Update Server
+#      yum:
+#        name: '*'
+#        state: latest
+#      ignore_errors: yes
+    
+    - name: Install packages for docker-ce "{{ ansible_fqdn }}"
+      yum:
+        name: "{{ item }}"
+        state: present
+      with_items: 
+        - yum-utils
+        - device-mapper-persistent-data
+        - lvm2
+    
+    - name: Config for Docker
+      copy:
+        dest: "/etc/sysctl.d/99-kubernetes-cri.conf" # required. Remote absolute path where the file should be copied to. If I(src) is a directory, this must be a directory too. If I(dest) is a nonexistent path and if either I(dest) ends with "/" or I(src) is a directory, I(dest) is created. If I(src) and I(dest) are files, the parent directory of I(dest) isn't created: the task fails if it doesn't already exist.
+        content: 
+          net.bridge.bridge-nf-call-iptables  = 1
+          net.ipv4.ip_forward                 = 1
+          net.bridge.bridge-nf-call-ip6tables = 1 # not required. When used instead of I(src), sets the contents of a file directly to the specified value. For anything advanced or with formatting also look at the template module.
+    - name: Setup system
+      command: sysctl --system
+
+    - name: Add Docker repository
+      yum_repository:
+          name: DockerCE
+          description: Docker CE repository
+          baseurl: https://download.docker.com/linux/centos/7/x86_64/stable/
+          gpgkey: https://download.docker.com/linux/centos/gpg
+          gpgcheck: yes
+
+    - name: Install packages for Docker
+      yum:
+        name: "{{ packages }}"
+        state: present
+        update_cache: yes
+      vars:
+        packages:
+        - docker-ce
+        - docker-ce-cli
+        - containerd.io
+
+    - name: Start Docker
+      systemd:
+          name: docker # not required. Name of the service. When using in a chroot environment you always need to specify the full name i.e. (crond.service).
+          enabled: yes # not required. Whether the service should start on boot. B(At least one of state and enabled are required.)
+          daemon_reload: yes # not required. run daemon-reload before doing any other operations, to make sure systemd has read any changes.
+          state: started # not required. choices: reloaded;restarted;started;stopped. C(started)/C(stopped) are idempotent actions that will not run commands unless necessary. C(restarted) will always bounce the service. C(reloaded) will always reload.
+
+    - name: Remove swapfile from /etc/fstab
+      mount:
+        name: "{{ item }}"
+        fstype: swap
+        state: absent
+      with_items:
+        - swap
+        - none
+
+    - name: Disable swap
+      command: swapoff -a
+      when: ansible_swaptotal_mb > 0
+
+    - name: Add repos for Kubernetes
+      yum_repository:
+          name: Kubernetes
+          description: Kubernetes
+          baseurl: https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64
+          gpgkey: https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+          gpgcheck: yes
+
+    - name: Open port for K8s-Master
+      command: firewall-cmd --add-port="{{ item }}" --permanent
+      with_items:
+        - 6443/tcp
+        - 2379-2380/tcp
+        - 10250/tcp
+        - 10251/tcp
+        - 10252/tcp
+      when: "'k8sMaster' in group_names"
+
+    - name: Open port for K8s-Worker
+      command: firewall-cmd --add-port="{{ item }}" --permanent
+      with_items:
+        - 10250/tcp
+        - 30000-32767/tcp
+      when: "'k8sWorker' in group_names"
+
+    - name: Restart Firewalld
+      systemd:
+        state: restarted
+        daemon_reload: yes
+        name: firewalld
+
+    - name: Put SELinux in permissive mode, logging actions that would be blocked.
+      selinux:
+        policy: targeted
+        state: permissive
+    
+    - name: Install packages for Kubernetes
+      yum:
+        name:
+          - kubelet
+          - kubeadm
+          - kubectl
+        state: present
+
+    - name: Start and enable kubelet
+      systemd:
+        state: started
+        enabled: yes
+        name: kubelet
+
+    - name: Initialize the Kubernetes cluster using kubeadm
+      command: kubeadm init --apiserver-advertise-address="{{ host_addr }}" --apiserver-cert-extra-sans="{{ host_addr }}"  --node-name "{{ ansible_hostname }}" --pod-network-cidr=192.168.0.0/16
+      when: "'k8sMaster' in group_names"
+
+    - name: Create /root/.kube if it does not exist
+      file:
+        path: /root/.kube
+        state: directory
+        mode: '0755'
+      when: "'k8sMaster' in group_names"
+    
+    - name: Copy a new "/etc/kubernetes/admin.conf" file into place, backing up the original if it differs from the copied version
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /root/.kube/config
+        remote_src: yes
+        owner: root
+        group: root
+        mode: '0644'
+        backup: yes
+      when: "'k8sMaster' in group_names"
+
+    - name: Generate join command
+      command: kubeadm token create --print-join-command
+      register: join_command
+      when: "'k8sMaster' in group_names"
+
+    - name: Copy join command to local file
+      local_action: copy content="{{ join_command.stdout_lines[0] }}" dest="./join-command"
+      when: "'k8sMaster' in group_names"
+
+#trouver comment récupérer le join command
+    - name: Copy the join command to server location
+      copy: src=join-command dest=/tmp/join-command.sh mode=0777
+      when: "'k8sWorker' in group_names"
+
+    - name: Join the Kubernetes cluster
+      command: sh /tmp/join-command.sh
+      when: "'k8sWorker' in group_names"
